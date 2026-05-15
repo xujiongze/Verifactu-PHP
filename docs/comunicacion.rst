@@ -88,3 +88,51 @@ Esta funcionalidad se ve implementada en el método :php:method:`josemmo\Verifac
 
     // Para desactivar el modo de envío de requirimiento de informacióna
     $client->setRequirementReference(null);
+
+Consulta de facturas emitidas
+------------------------------
+
+La AEAT ofrece un servicio de consulta (``ConsultaLR``) que permite recuperar los registros de facturación previamente enviados.
+Para realizar una consulta, crea un objeto :php:class:`josemmo\Verifactu\Models\Queries\InvoiceQuery` con los filtros deseados y llama al método :php:method:`josemmo\Verifactu\Services\AeatClient::query()`:
+
+.. code-block:: php
+
+    use DateTimeImmutable;
+    use josemmo\Verifactu\Models\Queries\InvoiceQuery;
+    use josemmo\Verifactu\Models\Records\InvoiceIdentifier;
+
+    // Crear el filtro de consulta
+    $filter = new InvoiceQuery();
+    $filter->issueDateFrom = new DateTimeImmutable('2025-01-01');
+    $filter->issueDateTo = new DateTimeImmutable('2025-12-31');
+
+    // Realizar la consulta
+    $consultaResponse = $client->query($filter)->wait();
+
+    foreach ($consultaResponse->items as $item) {
+        echo $item->invoiceId->invoiceNumber . ': ' . $item->registrationStatus . "\n";
+    }
+
+Para consultar una factura concreta, usa el campo ``invoiceId``:
+
+.. code-block:: php
+
+    $filter = new InvoiceQuery();
+    $filter->invoiceId = new InvoiceIdentifier('A00000000', 'TICKET-2025-001', new DateTimeImmutable('2025-06-10'));
+
+    $consultaResponse = $client->query($filter)->wait();
+
+Si la respuesta contiene más resultados de los que caben en una página, puedes paginarlo usando ``ClavePaginacion``:
+
+.. code-block:: php
+
+    do {
+        $consultaResponse = $client->query($filter)->wait();
+
+        foreach ($consultaResponse->items as $item) {
+            // Procesar cada registro
+        }
+
+        // Preparar la siguiente página
+        $filter->paginationId = $consultaResponse->nextPaginationId;
+    } while ($consultaResponse->hasMorePages);

@@ -7,11 +7,13 @@ use GuzzleHttp\Promise\PromiseInterface;
 use InvalidArgumentException;
 use josemmo\Verifactu\Exceptions\AeatException;
 use josemmo\Verifactu\Models\ComputerSystem;
+use josemmo\Verifactu\Models\Queries\InvoiceQuery;
 use josemmo\Verifactu\Models\Records\CancellationRecord;
 use josemmo\Verifactu\Models\Records\FiscalIdentifier;
 use josemmo\Verifactu\Models\Records\Record;
 use josemmo\Verifactu\Models\Records\RegistrationRecord;
 use josemmo\Verifactu\Models\Responses\AeatResponse;
+use josemmo\Verifactu\Models\Responses\ConsultaResponse;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Message\ResponseInterface;
 use SensitiveParameter;
@@ -25,6 +27,8 @@ class AeatClient {
     public const NS_SOAPENV = 'http://schemas.xmlsoap.org/soap/envelope/';
     /** Client XML namespace */
     public const NS_AEAT = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd';
+    /** ConsultaLR XML namespace */
+    public const NS_CONSULTA_AEAT = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/ConsultaLR.xsd';
 
     private readonly ComputerSystem $system;
     private readonly FiscalIdentifier $taxpayer;
@@ -218,6 +222,70 @@ class AeatClient {
                 }
             })
             ->then(fn (UXML $xml): AeatResponse => AeatResponse::from($xml));
+    }
+
+    /**
+     * Query submitted invoicing records
+     *
+     * @param InvoiceQuery $filter Query filter
+     *
+     * @return PromiseInterface<ConsultaResponse> Response from service
+     *
+     * @throws AeatException            if AEAT server returned an error
+     * @throws ClientExceptionInterface if request sending failed
+     */
+    public function query(InvoiceQuery $filter): PromiseInterface { /** @phpstan-ignore generics.notGeneric */
+        // Build request
+        $xml = UXML::newInstance('soapenv:Envelope', null, [
+            'xmlns:soapenv' => self::NS_SOAPENV,
+            'xmlns:con' => self::NS_CONSULTA_AEAT,
+            'xmlns:sum1' => Record::NS,
+        ]);
+        $xml->add('soapenv:Header');
+        $baseElement = $xml->add('soapenv:Body')->add('con:PeticionConsultaFactuSistemaFacturacion');
+
+        // Add header
+        $cabeceraElement = $baseElement->add('con:Cabecera');
+        $obligadoEmisionElement = $cabeceraElement->add('sum1:ObligadoEmision');
+        $obligadoEmisionElement->add('sum1:NombreRazon', $this->taxpayer->name);
+        $obligadoEmisionElement->add('sum1:NIF', $this->taxpayer->nif);
+        if ($this->representative !== null) {
+            $representanteElement = $cabeceraElement->add('sum1:Representante');
+            $representanteElement->add('sum1:NombreRazon', $this->representative->name);
+            $representanteElement->add('sum1:NIF', $this->representative->nif);
+        }
+
+        // Add query filter
+        $filter->export($baseElement, 'con', 'sum1');
+
+        // Send request
+        $options = [
+            'base_uri' => $this->getBaseUri(),
+            'http_errors' => false,
+            'headers' => [
+                'Content-Type' => 'text/xml',
+                'User-Agent' => "Mozilla/5.0 (compatible; {$this->system->name}/{$this->system->version})",
+            ],
+            'body' => $xml->asXML(),
+        ];
+        if ($this->certificatePath !== null) {
+            $options['cert'] = ($this->certificatePassword === null) ?
+                $this->certificatePath :
+                [$this->certificatePath, $this->certificatePassword];
+        }
+        $responsePromise = $this->client->postAsync('/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAPConsulta', $options);
+
+        // Parse and return response
+        return $responsePromise
+            ->then(fn (ResponseInterface $response): string => $response->getBody()->getContents())
+            ->then(function (string $response): UXML {
+                try {
+                    return UXML::fromString($response);
+                } catch (InvalidArgumentException $e) {
+                    throw new AeatException('Failed to parse XML response', previous: $e);
+                }
+            })
+            ->then(fn (UXML $xml): ConsultaResponse => ConsultaResponse::from($xml));
     }
 
     /**
