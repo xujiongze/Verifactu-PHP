@@ -86,7 +86,7 @@ Esta funcionalidad se ve implementada en el método :php:method:`josemmo\Verifac
     // Para enviar la última página de registros (fin del requerimiento)
     $client->setRequirementReference('REF00001ABDEAF1234', true);
 
-    // Para desactivar el modo de envío de requirimiento de informacióna
+    // Para desactivar el modo de envío de requirimiento de información
     $client->setRequirementReference(null);
 
 Consulta de facturas emitidas
