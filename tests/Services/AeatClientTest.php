@@ -10,6 +10,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use josemmo\Verifactu\Exceptions\AeatException;
 use josemmo\Verifactu\Models\ComputerSystem;
+use josemmo\Verifactu\Models\Queries\InvoiceQuery;
 use josemmo\Verifactu\Models\Records\CancellationRecord;
 use josemmo\Verifactu\Models\Records\FiscalIdentifier;
 use josemmo\Verifactu\Models\Records\InvoiceIdentifier;
@@ -90,5 +91,19 @@ final class AeatClientTest extends TestCase {
         $client = $this->getMockedClient(new ConnectException('Exception message', new Request('GET', 'test')));
         $record = $this->getMockedRecord();
         $client->send([$record])->wait();
+    }
+
+    public function testQueryThrowsExceptionForMalformedXmlResponse(): void {
+        $this->expectException(AeatException::class);
+        $this->expectExceptionMessage('Failed to parse XML response');
+        $client = $this->getMockedClient(new Response(200, [], '<element>Malformed XML</notClosingElement>'));
+        $client->query(new InvoiceQuery())->wait();
+    }
+
+    public function testQueryThrowsExceptionForUnexpectedXmlResponse(): void {
+        $this->expectException(AeatException::class);
+        $this->expectExceptionMessage('Missing <conR:RespuestaConsultaFactuSistemaFacturacion /> element from response');
+        $client = $this->getMockedClient(new Response(401, [], '<html><body>Unauthorized</body></html>'));
+        $client->query(new InvoiceQuery())->wait();
     }
 }
